@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import skopt
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -12,7 +13,12 @@ import time
 import os
 from skopt import gp_minimize
 
-round = "8"
+# Set the round number for this optimization
+round = "9"
+
+# Consider GPU
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
 
 # Create output directory if it doesn't exist
 os.makedirs('output', exist_ok=True)
@@ -62,46 +68,25 @@ def create_dataset(X, y, lookback):
         y_list.append(y[i + lookback])
     return torch.tensor(X_list).float(), torch.tensor(y_list).float()
 
-
 class MultivariateLSTM(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, dropout_rate):
+    def __init__(self, input_size, hidden_size, num_layers, dropout_rate, device):
         super().__init__()
+        self.device = device
         self.lstm = nn.LSTM(
             input_size=input_size,
             hidden_size=hidden_size,
             num_layers=num_layers,
             # dropout=dropout_rate if num_layers > 1 else 0,
             batch_first=True,
-        )
-        self.linear = nn.Linear(hidden_size, 1)
+            device=device
+        ).to(device)
+        self.linear = nn.Linear(hidden_size, 1).to(device)
 
     def forward(self, x):
         lstm_out, _ = self.lstm(x)
         last_time_step = lstm_out[:, -1, :]
         predictions = self.linear(last_time_step)
         return predictions
-
-# Define the hyperparameter search space
-param_dist = {
-    'lookback': [1, 2, 3, 4, 5, 6, 7],
-    'hidden_size': [25, 50, 75, 100],
-    'num_layers': [1, 2, 3, 4, 5],
-    'learning_rate': [0.001, 0.005, 0.01, 0.05],
-    # 'dropout': [0.0, 0.2],
-    'batch_size': [32, 64, 128],
-    'epochs': [50, 100, 150, 200, 250, 300],
-}
-
-bayes_param_space = {
-    'lookback': Integer(1, 7, name='lookback'),
-    'hidden_size': Integer(25, 100, name='hidden_size'),
-    'num_layers': Integer(1, 5, name='num_layers'),
-    'learning_rate': Real(0.001, 0.05, prior='log-uniform', name='learning_rate'),
-    # 'dropout': Real(0.0, 0.2, name='dropout'),
-    'batch_size': Integer(32, 128, name='batch_size'),
-    'epochs': Integer(50, 300, name='epochs')
-}
-
 
 class LSTMWrapper:
     def __init__(self):
@@ -126,14 +111,17 @@ class LSTMWrapper:
         try:
             # Create datasets
             X_tensor, y_tensor = create_dataset(X, y, lookback)
+            X_tensor, y_tensor = X_tensor.to(device), y_tensor.to(device)
 
             # Initialize model
             self.model = MultivariateLSTM(
                 self.input_size,
                 hidden_size,
                 num_layers=num_layers,
-                dropout_rate=dropout
+                dropout_rate=dropout,
+                device=device
             )
+            self.model = self.model.to(device)
 
             # Training setup
             optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
@@ -171,10 +159,11 @@ class LSTMWrapper:
             raise ValueError("Model not trained yet")
 
         X_tensor, _ = create_dataset(X, np.zeros(len(X)), self.current_params['lookback'])
+        X_tensor = X_tensor.to(device)
         self.model.eval()
         with torch.no_grad():
-            predictions = self.model(X_tensor)
-        return predictions.numpy()
+            predictions = self.model(X_tensor).cpu().numpy()
+        return predictions
 
     def score(self, X, y):
         """Return negative MSE score for optimization"""
@@ -187,14 +176,12 @@ class LSTMWrapper:
             print(f"Error in score: {e}")
             return float('-inf')
 
-
 def run_optimization(tuning_method='bayes'):
     results_list = []
     start_time = time.time()
     trial_counter = 0
 
     if tuning_method == 'bayes':
-        model = LSTMWrapper()
         search_space = [
             Integer(1, 7, name='lookback'),
             Integer(25, 100, name='hidden_size'),
@@ -218,7 +205,7 @@ def run_optimization(tuning_method='bayes'):
                 'learning_rate': float(learning_rate),
                 # 'dropout': float(dropout),
                 'batch_size': int(batch_size),
-                'epochs': int(epochs)
+                'epochs': int(epochs),
             }
 
             try:
@@ -294,10 +281,31 @@ def run_optimization(tuning_method='bayes'):
         result = gp_minimize(
             objective,
             search_space,
-            n_calls=100,
-            n_random_starts=5,
+            n_calls=150,  # Increase exploration
+            n_random_starts=10,  # More initial random configurations
             random_state=42
         )
+
+        print("Bayesian optimization completed.")
+
+        best_params = {
+            'lookback': int(result.x[0]),
+            'hidden_size': int(result.x[1]),
+            'num_layers': int(result.x[2]),
+            'learning_rate': float(result.x[3]),
+            'batch_size': int(result.x[4]),
+            'epochs': int(result.x[5])
+        }
+
+        results_list.append({
+            **best_params,
+            'train_rmse': None,
+            'test_rmse': result.fun,
+            'training_time': time.time() - start_time,
+            'trial_number': trial_counter
+        })
+
+        print(f"Best parameters found: {best_params}")
 
     # Save final combined results
     final_results_df = pd.DataFrame(results_list)
