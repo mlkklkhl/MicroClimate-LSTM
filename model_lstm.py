@@ -57,8 +57,8 @@ y_scaled = target_scaler.fit_transform(y.reshape(-1, 1)).flatten()
 train_size = int(len(X_scaled) * 0.67)
 test_size = len(X_scaled) - train_size
 
-X_train, X_test = X_scaled[:train_size], X_scaled[test_size:]
-y_train, y_test = y_scaled[:train_size], y_scaled[test_size:]
+X_train, X_test = X_scaled[:train_size], X_scaled[train_size:]
+y_train, y_test = y_scaled[:train_size], y_scaled[train_size:]
 
 def create_dataset(X, y, lookback):
     """Transform a time series into a prediction dataset"""
