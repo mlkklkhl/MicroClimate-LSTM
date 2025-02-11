@@ -261,19 +261,11 @@ def run_optimization(tuning_method='bayes'):
 
                     print(f"\nProcessing split {split_idx + 1}/{len(splits)}")
 
-                    # Get cumulative training data up to this point
-                    if split_idx > 0:
-                        # Include all previous training data plus new training data
-                        train_index = np.concatenate([np.arange(previous_train_end), train_index])
-
                     X_train, X_test = X_scaled[train_index], X_scaled[test_index]
                     y_train, y_test = y_scaled[train_index], y_scaled[test_index]
 
                     print(f"Train index: {train_index}, size: {len(X_train)}")
                     print(f"Test index: {test_index}, size: {len(X_test)}")
-
-                    # Update the previous train end marker
-                    previous_train_end = max(train_index) + 1
 
                     # If not first split, reduce epochs to avoid overtraining
                     current_epochs = current_params['epochs'] if split_idx == 0 else current_params['epochs'] // 2
