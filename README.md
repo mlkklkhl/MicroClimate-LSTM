@@ -10,14 +10,14 @@ This project implements a multivariate LSTM model for predicting indoor heat ind
 - Outlier Removal: Filters out outliers using Z-score method
 - Comprehensive Evaluation: Calculates RMSE for both training and test sets
 
-# Input Features (19 total)
+## Input Features (19 total)
 - Grid9_Heat_Index
 - Outdoor temperature and humidity sensors (Out1-4)
 - Outdoor current sensors (Outdoor1-2)
 - Curtain_State
 - Thermostat
 - Air velocity sensors (P1-P4)
-# Target Feature
+## Target Feature
 - Grid1_Heat_Index (indoor heat index to predict)
 
 ## Model Architecture
