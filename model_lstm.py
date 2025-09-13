@@ -20,8 +20,10 @@ round = "9"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-# Create output directory if it doesn't exist
+# Create output directories if they don't exist
 os.makedirs('output', exist_ok=True)
+os.makedirs('output_baye', exist_ok=True)
+os.makedirs(f'output_baye/{round}', exist_ok=True)
 
 # Load the dataset
 df = pd.read_csv("meeting  room/microclimate_datasets_03-14-2024.csv", encoding="utf8")
@@ -69,14 +71,13 @@ def create_dataset(X, y, lookback):
     return torch.tensor(X_list).float(), torch.tensor(y_list).float()
 
 class MultivariateLSTM(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, dropout_rate, device):
+    def __init__(self, input_size, hidden_size, num_layers, device):
         super().__init__()
         self.device = device
         self.lstm = nn.LSTM(
             input_size=input_size,
             hidden_size=hidden_size,
             num_layers=num_layers,
-            # dropout=dropout_rate if num_layers > 1 else 0,
             batch_first=True,
             device=device
         ).to(device)
@@ -101,7 +102,7 @@ class LSTMWrapper:
         return self
 
     def fit(self, X, y, lookback=4, hidden_size=50, num_layers=2, learning_rate=0.01,
-            dropout=0.1, batch_size=64, epochs=200):
+            batch_size=64, epochs=200):
         start_time = time.time()
         self.current_params = locals()
         del self.current_params['self']
@@ -118,7 +119,6 @@ class LSTMWrapper:
                 self.input_size,
                 hidden_size,
                 num_layers=num_layers,
-                dropout_rate=dropout,
                 device=device
             )
             self.model = self.model.to(device)
@@ -187,7 +187,6 @@ def run_optimization(tuning_method='bayes'):
             Integer(25, 100, name='hidden_size'),
             Integer(1, 5, name='num_layers'),
             Real(0.001, 0.05, prior='log-uniform', name='learning_rate'),
-            # Real(0.0, 0.2, name='dropout'),
             Integer(32, 128, name='batch_size'),
             Integer(50, 300, name='epochs')
         ]
@@ -196,14 +195,12 @@ def run_optimization(tuning_method='bayes'):
             nonlocal trial_counter
             trial_counter += 1
 
-            # lookback, hidden_size, num_layers, learning_rate, dropout, batch_size, epochs = params
             lookback, hidden_size, num_layers, learning_rate, batch_size, epochs = params
             current_params = {
                 'lookback': int(lookback),
                 'hidden_size': int(hidden_size),
                 'num_layers': int(num_layers),
                 'learning_rate': float(learning_rate),
-                # 'dropout': float(dropout),
                 'batch_size': int(batch_size),
                 'epochs': int(epochs),
             }
@@ -240,6 +237,7 @@ def run_optimization(tuning_method='bayes'):
                 results_list.append(trial_results)
 
                 # Save trial results to CSV after each trial
+                os.makedirs(f'output_baye/{round}', exist_ok=True)
                 pd.DataFrame(results_list).to_csv(
                     f'output_baye/{round}/optimization_results_{tuning_method}_trial_{trial_counter}.csv',
                     index=False
@@ -319,9 +317,6 @@ def run_optimization(tuning_method='bayes'):
             print(f"{key}: {value}")
 
     return results_list
-
-# Create output directory if it doesn't exist
-os.makedirs('output_baye', exist_ok=True)
 
 # Run optimization with chosen method
 tuning_method = 'bayes'  # Choose from 'grid', 'random', or 'bayes'
