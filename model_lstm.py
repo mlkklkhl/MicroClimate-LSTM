@@ -14,7 +14,7 @@ import os
 from skopt import gp_minimize
 
 # Set the round number for this optimization
-round = "9"
+round = "1"
 
 # Consider GPU
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -332,3 +332,4 @@ if len(results_list) > 0:
     print("\nBest Configuration:")
     for key, value in best_config.items():
         print(f"{key}: {value}")
+
