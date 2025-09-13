@@ -15,8 +15,6 @@ import os
 from skopt import gp_minimize
 from sklearn.model_selection import TimeSeriesSplit
 
-# Contribution: how to reduce the h-index variance to less than 1 (the optimal point that affects human thermal comfort sensation)
-
 # Consider GPU
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
@@ -43,7 +41,6 @@ class MultivariateLSTM(nn.Module):
             input_size=input_size,
             hidden_size=hidden_size,
             num_layers=num_layers,
-            # dropout=dropout_rate if num_layers > 1 else 0,
             batch_first=True,
             device=device
         ).to(device)
@@ -58,7 +55,7 @@ class MultivariateLSTM(nn.Module):
 class LSTMWrapper:
     def __init__(self):
         self.model = None
-        self.input_size = len(input_features)
+        self.input_size = None
         self.current_params = None
 
     def get_params(self, deep=True):
@@ -74,6 +71,9 @@ class LSTMWrapper:
         del self.current_params['self']
         del self.current_params['X']
         del self.current_params['y']
+        
+        # Set input size based on the data
+        self.input_size = X.shape[1] if len(X.shape) > 1 else 1
 
         try:
             # Create datasets
@@ -156,7 +156,6 @@ def run_optimization(tuning_method='bayes', n_init_points=10):
             Integer(25, 100, name='hidden_size'),
             Integer(1, 5, name='num_layers'),
             Real(0.001, 0.05, prior='log-uniform', name='learning_rate'),
-            # Real(0.0, 0.2, name='dropout'),
             Integer(32, 128, name='batch_size'),
             Integer(50, 300, name='epochs')
         ]
@@ -165,14 +164,12 @@ def run_optimization(tuning_method='bayes', n_init_points=10):
             nonlocal trial_counter
             trial_counter += 1
 
-            # lookback, hidden_size, num_layers, learning_rate, dropout, batch_size, epochs = params
             lookback, hidden_size, num_layers, learning_rate, batch_size, epochs = params
             current_params = {
                 'lookback': int(lookback),
                 'hidden_size': int(hidden_size),
                 'num_layers': int(num_layers),
                 'learning_rate': float(learning_rate),
-                # 'dropout': float(dropout),
                 'batch_size': int(batch_size),
                 'epochs': int(epochs),
             }
@@ -189,18 +186,12 @@ def run_optimization(tuning_method='bayes', n_init_points=10):
 
                 # Get split indices
                 splits = list(tscv.split(X_scaled))
-                # Track the end of the previous training data
-                previous_train_end = 0
-
+                
                 for split_idx, (train_index, test_index) in enumerate(splits):
-
                     print(f"\nProcessing split {split_idx + 1}/{len(splits)}")
 
                     X_train, X_test = X_scaled[train_index], X_scaled[test_index]
                     y_train, y_test = y_scaled[train_index], y_scaled[test_index]
-
-                    print(f"Train index: {train_index}, size: {len(X_train)}")
-                    print(f"Test index: {test_index}, size: {len(X_test)}")
 
                     # If not first split, reduce epochs to avoid overtraining
                     current_epochs = current_params['epochs'] if split_idx == 0 else current_params['epochs'] // 2
@@ -255,7 +246,7 @@ def run_optimization(tuning_method='bayes', n_init_points=10):
 
                 # Save trial results to CSV after each trial
                 pd.DataFrame(results_list).to_csv(
-                    f'{dir_name}/{n}/{round}/optimization_results_{tuning_method}_trial_{trial_counter}.csv',
+                    f'{dir_name}/{dir_suffix}/{round_dir}/optimization_results_{tuning_method}_trial_{trial_counter}.csv',
                     index=False
                 )
 
@@ -280,11 +271,10 @@ def run_optimization(tuning_method='bayes', n_init_points=10):
                 plt.grid(True)
                 plt.tight_layout()
 
-                plt.savefig(f'{dir_name}/{n}/{round}/trial_{trial_counter}_results.png')
+                plt.savefig(f'{dir_name}/{dir_suffix}/{round_dir}/trial_{trial_counter}_results.png')
                 plt.close()
 
-                print(
-                    f"Trial {trial_counter} completed in {trial_results['training_time']:.2f} seconds with test RMSE: {test_rmse:.4f} \n\n")
+                print(f"Trial {trial_counter} completed in {trial_results['training_time']:.2f} seconds with test RMSE: {test_rmse:.4f} \n\n")
 
                 return test_rmse
 
@@ -297,8 +287,8 @@ def run_optimization(tuning_method='bayes', n_init_points=10):
         result = gp_minimize(
             objective,
             search_space,
-            n_calls=200,  # Increase exploration
-            n_initial_points=n_init_points,  # initialization points before approximating it with base_estimator
+            n_calls=200,
+            n_initial_points=n_init_points,
         )
 
         print("Bayesian optimization completed.")
@@ -324,7 +314,7 @@ def run_optimization(tuning_method='bayes', n_init_points=10):
 
     # Save final combined results
     final_results_df = pd.DataFrame(results_list)
-    final_results_df.to_csv(f'{dir_name}/{n}/{round}/final_optimization_results_{tuning_method}.csv', index=False)
+    final_results_df.to_csv(f'{dir_name}/{dir_suffix}/{round_dir}/final_optimization_results_{tuning_method}.csv', index=False)
 
     # Print best performing configuration
     if len(results_list) > 0:
@@ -360,10 +350,8 @@ if __name__ == '__main__':
     #### Filter Data END ####
 
     #### Data Preprocessing START ####
-
     # Select features (now multiple input features)
     input_features = [
-        # 'Grid9_Heat_Index',
         'Out1_Temp_Mean', 'Out1_Humi_Mean', 'Out2_Temp_Mean', 'Out2_Humi_Mean',
         'Out3_Temp_Mean', 'Out3_Humi_Mean', 'Out4_Temp_Mean', 'Out4_Humi_Mean', 'Outdoor1_Current1_Mean',
         'Outdoor1_Current2_Mean', 'Outdoor2_Current1_Mean', 'Outdoor2_Current2_Mean', 'Curtain_State',
@@ -391,7 +379,7 @@ if __name__ == '__main__':
     #### Data Preprocessing END ####
 
     # Run optimization with chosen method
-    tuning_method = 'bayes'  # Choose from 'grid', 'random', or 'bayes'
+    tuning_method = 'bayes'
 
     # Set the directory and round number for this optimization
     dir_name = 'microclimate_lstm_optimization'
@@ -399,29 +387,22 @@ if __name__ == '__main__':
 
     # Set the time series split set [5, 10]
     n_splits = [5, 10]
+    n_init_points = [10, 20, 50]
 
-    for n in n_splits:
-
-        # Time series split, n_splits is the number of splits (dependent on the dataset), test_size = n_samples // (n_splits + 1)
-        tscv = TimeSeriesSplit(n_splits=n)
-
-        n_init_points = [10, 20, 50]
-
+    for n_split in n_splits:
+        # Time series split
+        tscv = TimeSeriesSplit(n_splits=n_split)
+        
         for n_init in n_init_points:
-
-            n = "tscv_split_" + str(n) + "_n_init_" + str(n_init)
-
-            # Loop round number [1-10] in string
-            for round in range(1, 11):
-                round = "round_" + str(round)
-                os.makedirs(f'{dir_name}/{n}/{round}', exist_ok=True)
-
-                results_list = run_optimization(tuning_method, n_init)
+            # Create a unique directory name
+            dir_suffix = f"tscv_split_{n_split}_n_init_{n_init}"
+            
+            for round_num in range(1, 11):
+                round_dir = f"round_{round_num}"
+                os.makedirs(f'{dir_name}/{dir_suffix}/{round_dir}', exist_ok=True)
+                
+                results_list = run_optimization(tuning_method, n_init_points=n_init)
 
                 # Save results
                 results_df = pd.DataFrame(results_list)
-                results_df.to_csv(f'{dir_name}/{n}/{round}/optimization_results_{tuning_method}.csv', index=False)
-
-
-
-
+                results_df.to_csv(f'{dir_name}/{dir_suffix}/{round_dir}/optimization_results_{tuning_method}.csv', index=False)
