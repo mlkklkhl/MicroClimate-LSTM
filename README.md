@@ -3,6 +3,20 @@
 ## Objective
 This project implements a multivariate LSTM model for predicting indoor heat index values using Bayesian optimization to find the best hyperparameters. The model uses various environmental sensors and outdoor conditions as input features.
 
+```
+model_lstm.py
+Data Preprocessing and Filtering: Z-score
+Cross-Validation Approach: Simple train-test split (67% train, 33% test)
+Evaluation Metrics: RMSE
+Optimization Strategy: Single optimization run
+
+model_lstm_optim.py
+Data Preprocessing and Filtering: filtering by time of day (6:00-18:00) and window/door states
+Cross-Validation Approach: Time Series Cross-Validation with multiple splits (5 or 10)
+Evaluation Metrics: RMSE, MAE, and R²
+Optimization Strategy: Multiple optimization runs with different configurations
+```
+
 ## Key Features
 - Multivariate Time Series Prediction: Uses multiple input features to predict heat index values
 - Bayesian Optimization: Automatically finds optimal hyperparameters using Gaussian Process optimization
